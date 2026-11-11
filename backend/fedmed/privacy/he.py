@@ -6,10 +6,12 @@ The central server is modelled as *curious but honest*. It must combine
 client updates to produce the next global model without learning anything
 about any individual update.
 
-The implementation uses the **CKKS** scheme with a *shared symmetric context*
+The implementation uses the **CKKS** scheme with a *shared key context*
 that the server distributes to each hospital node over the TLS-protected
-gRPC channel. Every node encrypts its update under that context, so the
-server can add ciphertexts together and decrypt only the final aggregate.
+gRPC channel. Every node encrypts its update under that public context, so the
+server can add ciphertexts together and decrypt the aggregate sum. Note that
+the aggregator holds the secret key and possesses the capability to decrypt
+individual updates if it departs from the aggregation protocol.
 
 Why the aggregation weight is applied client-side
 --------------------------------------------------
@@ -110,21 +112,22 @@ class HESession:
 def create_session(node_id: str) -> HESession:
     """Create a fresh CKKS context for the aggregator.
 
-    TenSEAL's CKKS implementation is *symmetric*: a ciphertext can only be
-    decrypted by the holder of the secret key it was encrypted under. For
-    the server to add two ciphertexts produced by different hospitals, all
-    of them must therefore be encrypted under **one shared context**.
+    In TenSEAL's CKKS implementation, encryption is public-key; the core
+    requirement is that all participating nodes encrypt under the exact same
+    key pair. For the server to add two ciphertexts produced by different
+    hospitals, all of them must therefore be encrypted under **one shared
+    context**.
 
     That context is created once by the aggregator and distributed to the
     nodes over the TLS-protected channel (see :func:`serialize_context` and
     :func:`session_from_serialized`). A hospital node must therefore never
-    mint its own context -- doing so yields ciphertexts under different
-    keys, whose homomorphic sum is meaningless.
+    mint its own independent context -- doing so yields ciphertexts under
+    different keys whose homomorphic sum is meaningless.
 
-    In a real cross-silo deployment the server would publish only the
-    public key of an asymmetric scheme; TenSEAL exposes CKKS/BFV/NONE
-    only, so the symmetric context is shared inside the trust boundary of
-    the mutually-authenticated cluster.
+    Because the aggregator holds the secret key, it has the technical capability
+    to decrypt any single hospital update (see ``SECURITY.md``). A zero-trust
+    production deployment would require an asymmetric threshold homomorphic
+    scheme where the secret key is distributed across multiple institutions.
     """
     if not TENSEAL_AVAILABLE:
         return HESession(node_id=node_id, context=None)

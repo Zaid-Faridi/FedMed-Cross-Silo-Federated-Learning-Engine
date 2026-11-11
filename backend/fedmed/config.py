@@ -28,10 +28,10 @@ class ModelConfig:
     out_channels: int = 3  # background + edema + enhancing tumour
     spatial_size: tuple[int, int, int] = (64, 64, 64)
     # A 3-level encoder/decoder keeps the parameter count at ~600k. This is a
-    # deliberate trade-off: a CKKS ciphertext expands the plaintext by ~20x,
-    # so every extra channel multiplies the per-round upload volume. At this
-    # size one encrypted update is ~48 MB, which fits comfortably inside
-    # Flower's 512 MB gRPC message limit.
+    # deliberate trade-off: a CKKS ciphertext expands the float32 parameter vector
+    # by roughly 20.3x (~10.1x relative to float64), so every extra channel
+    # multiplies the per-round upload volume. At this size one encrypted update is
+    # ~48.7 MB, which fits comfortably inside Flower's 512 MB gRPC message limit.
     channels: tuple[int, ...] = (16, 32, 64, 128)
     strides: tuple[int, ...] = (2, 2, 2)
     num_res_units: int = 1
@@ -61,10 +61,10 @@ class FederatedConfig:
     num_rounds: int = 10
     local_epochs: int = 2
     batch_size: int = 8
-    # SGD (not Adam) is the optimiser used by the nodes: the DP-SGD noise
-    # interacts badly with Adam's per-parameter second-moment estimates,
-    # which amplifies the injected noise instead of averaging it out.
-    # Calibrated over a (sigma, lr) sweep -- see tests/sweep3.py.
+    # SGD (not Adam) is the optimiser used by the nodes: in our benchmark
+    # setup on seed 20260101, DP-SGD noise interacted poorly with Adam's
+    # per-parameter second-moment estimates, amplifying injected noise rather
+    # than averaging it out. Calibrated over a (sigma, lr) sweep -- see tests/sweep3.py.
     learning_rate: float = 5e-2
     weight_decay: float = 1e-5
     optimizer: str = "sgd"

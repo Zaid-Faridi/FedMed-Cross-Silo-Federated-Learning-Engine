@@ -7,7 +7,7 @@ BraTS pre-processing output (240x240x155 -> cropped/resampled to a 64^3
 patch) and carry the same tumour sub-regions used for evaluation:
 
     label 0 -> background
-    label 1 -> necrotic / non-enhancing tumour core (edema)
+    label 1 -> peritumoral edema
     label 2 -> enhancing tumour
 
 A per-hospital *scanner bias* is injected into every volume so the three
