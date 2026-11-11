@@ -99,6 +99,7 @@ class RuntimeState:
         self.dp_epsilon: float = 0.0
         self.dp_delta: float = CONFIG.privacy.dp_delta
         self.dp_rounds: int = 0
+        self.dp_per_node: dict[str, dict] = {}
 
         #: Published events are consumed by the WebSocket layer.
         self.bus = EventBus()
@@ -274,6 +275,12 @@ class RuntimeState:
                 "dp_epsilon": self.dp_epsilon,
                 "dp_delta": self.dp_delta,
                 "dp_rounds": self.dp_rounds,
+                "dp_accountant": {
+                    "epsilon": self.dp_epsilon,
+                    "delta": self.dp_delta,
+                    "rounds": self.dp_rounds,
+                    "per_node": dict(self.dp_per_node),
+                },
             }
 
     def full_snapshot(self) -> dict:
