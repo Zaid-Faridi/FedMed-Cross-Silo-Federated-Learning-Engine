@@ -34,23 +34,25 @@ def _load_baseline() -> dict:
     return data
 
 
-def _server_certificates() -> tuple[bytes, bytes, bytes] | None:
+def _server_certificates(use_tls: bool = True) -> tuple[bytes, bytes, bytes] | None:
     """Load the (CA, server certificate, server key) triple for TLS.
 
-    Flower's gRPC transport expects exactly this ordering. When the
-    material is missing the aggregator falls back to an insecure
-    channel so that a fresh checkout still runs.
+    Flower's gRPC transport expects exactly this ordering. When TLS is enabled,
+    missing certificates raise FileNotFoundError (fail-closed).
     """
+    if not use_tls:
+        return None
+
     ca = Path(CONFIG.server.ca_cert)
     cert = Path(CONFIG.server.server_cert)
     key = Path(CONFIG.server.server_key)
 
-    if not (ca.exists() and cert.exists() and key.exists()):
-        logger.warning(
-            "TLS material incomplete in %s; starting the aggregator insecurely.",
-            ca.parent,
+    missing = [str(p) for p in (ca, cert, key) if not p.exists()]
+    if missing:
+        raise FileNotFoundError(
+            f"TLS material incomplete; missing: {', '.join(missing)}. "
+            "Run python -m fedmed.tls or pass --insecure."
         )
-        return None
 
     return (ca.read_bytes(), cert.read_bytes(), key.read_bytes())
 
@@ -177,9 +179,9 @@ def run_federated(
     config = ServerConfig(num_rounds=num_rounds)
 
     # Secure transport: the aggregator presents the server certificate and
-    # the hospital nodes verify it against the local CA. Without the
-    # certificate triple Flower falls back to an insecure channel.
-    certificates = _server_certificates() if use_tls else None
+    # the hospital nodes verify it against the local CA. Missing certificates
+    # raise FileNotFoundError unless use_tls is False.
+    certificates = _server_certificates(use_tls=use_tls)
 
     logger.info(
         "Starting federated server on %s for %d rounds (TLS=%s)",
