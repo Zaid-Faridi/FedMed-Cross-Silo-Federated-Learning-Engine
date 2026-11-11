@@ -143,7 +143,8 @@ class HospitalClient(Client):
     def get_parameters(self, ins: fct.GetParametersIns) -> fct.GetParametersRes:
         """Return the node's local model parameters."""
         return fct.GetParametersRes(
-            parameters=state_dict_to_parameters(self.reference_state)
+            status=fct.Status(code=fct.Code.OK, message="OK"),
+            parameters=state_dict_to_parameters(self.reference_state),
         )
 
     # -- training ------------------------------------------------------
@@ -173,13 +174,23 @@ class HospitalClient(Client):
 
         self.model.train()
         for _ in range(self.local_epochs):
-            for images, labels in self.train_loader:
-                if self.enable_dp:
+            if self.enable_dp:
+                # Poisson subsampling: steps per epoch = ceil(N / batch_size)
+                steps_per_epoch = max(int(np.ceil(self.num_examples / max(self.batch_size, 1))), 1)
+                for _ in range(steps_per_epoch):
+                    batch = self._sample_poisson_batch()
+                    if batch is None:
+                        # Empty batch drawn: handled gracefully by skipping step
+                        continue
+                    images, labels = batch
                     loss_value, dp_stats, n = self._dp_sgd_step(
                         images, labels, optimizer
                     )
                     patients += n
-                else:
+                    running += loss_value
+                    steps += 1
+            else:
+                for images, labels in self.train_loader:
                     optimizer.zero_grad()
                     logits = self.model(images)
                     loss = dice_ce_loss(
@@ -191,9 +202,8 @@ class HospitalClient(Client):
                     loss_value = loss.item()
                     n = images.shape[0]
                     patients += n
-
-                running += loss_value
-                steps += 1
+                    running += loss_value
+                    steps += 1
 
         local_loss = running / max(steps, 1)
 
@@ -224,7 +234,12 @@ class HospitalClient(Client):
         scaled = {k: (v.to(torch.float64) * weight) for k, v in update.items()}
 
         payload_bytes = 0
-        if self.he_enabled:
+        if self.enable_he:
+            if not self.he_enabled or not self.he_session.available:
+                raise RuntimeError(
+                    f"[{self.node_id}] Homomorphic encryption is enabled but no valid CKKS context is available; "
+                    "refusing to send plaintext update (fail-closed)."
+                )
             blob = he_mod.encrypt_state_dict(self.he_session, scaled)
             payload_bytes = len(blob)
             parameters = fct.Parameters(tensors=[blob], tensor_type="uint8")
@@ -331,8 +346,8 @@ class HospitalClient(Client):
         """Build the node's HE session from the shared CKKS context.
 
         The aggregator ships the cluster-wide context in the round config.
-        Until it arrives the node transmits its update in the clear, so
-        the session is (re)built as soon as the context is available.
+        When HE is enabled on the client, receiving a valid context is mandatory;
+        the client will fail closed rather than transmit plaintext updates.
         """
         if not self.enable_he:
             return
@@ -385,6 +400,34 @@ class HospitalClient(Client):
             weight_decay=cfg.weight_decay,
         )
 
+    def _sample_poisson_batch(self) -> tuple[torch.Tensor, torch.Tensor] | None:
+        """Draw a minibatch from local dataset using Poisson subsampling.
+
+        Each sample in the local dataset is included independently with probability
+        q = min(batch_size / N, 1.0). If an empty batch occurs, returns None.
+        """
+        dataset = self.train_loader.dataset
+        n = len(dataset)
+        if n == 0:
+            return None
+        q = min(self.batch_size / n, 1.0)
+        # Draw mask of selected indices
+        mask = np.random.binomial(1, q, size=n).astype(bool)
+        indices = np.where(mask)[0]
+        if len(indices) == 0:
+            return None
+
+        # Fetch tensor subset
+        if isinstance(dataset, torch.utils.data.TensorDataset):
+            images = dataset.tensors[0][indices]
+            labels = dataset.tensors[1][indices]
+            return images, labels
+
+        items = [dataset[i] for i in indices]
+        images = torch.stack([item[0] for item in items])
+        labels = torch.stack([item[1] for item in items])
+        return images, labels
+
     def _dp_sgd_step(
         self,
         images: torch.Tensor,
@@ -398,6 +441,8 @@ class HospitalClient(Client):
         applied to the *sum* (not the average) which is what the standard
         Gaussian mechanism requires.
         """
+        if images.shape[0] == 0:
+            return 0.0, {}, 0
         params = [p for p in self.model.parameters() if p.requires_grad]
 
         gradients: list[torch.Tensor] = []
