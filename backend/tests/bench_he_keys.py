@@ -1,4 +1,4 @@
-"""Verify the symmetric context distribution flow (server -> node -> server)."""
+"""Verify the shared context distribution flow (server -> node -> server)."""
 
 from __future__ import annotations
 

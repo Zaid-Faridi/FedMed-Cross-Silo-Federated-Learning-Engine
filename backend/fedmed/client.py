@@ -10,7 +10,8 @@ Each hospital node:
 4. Pre-scales the update by its FedAvg weight and encrypts it with
    homomorphic encryption (TenSEAL/CKKS).
 5. Returns the ciphertext to the server, which aggregates the ciphertexts
-   without ever decrypting an individual update.
+   and decrypts only the aggregate sum (the server possesses the key and
+   could technically decrypt individual updates, but follows the protocol).
 
 The node advertises its identity through Flower's ``get_properties`` hook
 so the aggregator can map an opaque Flower client proxy back to a
@@ -365,10 +366,10 @@ class HospitalClient(Client):
     def _build_optimizer(self) -> torch.optim.Optimizer:
         """Build the local optimizer.
 
-        Plain SGD is used because DP-SGD's additive noise interacts badly
-        with Adam's per-parameter second-moment estimates: the noise is
-        amplified rather than averaged out, and the model stops learning.
-        See ``tests/sweep3.py`` for the calibration sweep.
+        Plain SGD is used because in our benchmark setup on seed 20260101,
+        DP-SGD additive noise interacted poorly with Adam's per-parameter
+        second-moment estimates: noise was amplified rather than averaged out,
+        and the model stopped learning. See ``tests/sweep3.py`` for calibration.
         """
         cfg = CONFIG.federated
         if cfg.optimizer == "adamw":

@@ -2,6 +2,8 @@
 
 **Privacy-preserving brain-tumour segmentation across hospital nodes, with homomorphic encryption, differential privacy, and a live React dashboard.**
 
+For in-depth technical documentation and threat modeling, see [ARCHITECTURE.md](ARCHITECTURE.md) and [SECURITY.md](SECURITY.md).
+
 FedMed lets three hospitals collaboratively train a 3D U-Net for brain-tumour segmentation on MRI volumes **without any raw patient data leaving the hospital**. Model updates are encrypted with CKKS homomorphic encryption, perturbed with a differentially-private mechanism, and carried over mutual-TLS gRPC channels.
 
 ---
@@ -34,11 +36,11 @@ A MONAI 3D U-Net operating on `64×64×64` MRI patches.
 | Architecture | MONAI `UNet`, `spatial_dims=3` |
 | Channels / strides | `(16, 32, 64, 128)` / `(2, 2, 2)` |
 | Residual units | 1 per level, `INSTANCE` norm, dropout 0.2 |
-| Input / output | 1 channel → 3 classes (background, oedema, enhancing) |
+| Input / output | 1 channel → 3 classes (background, edema, enhancing) |
 | Parameters | **600,002** |
 | Loss | `dice_ce_loss` (soft Dice over foreground + cross-entropy over all classes) |
 
-The channel count is deliberately modest: a CKKS ciphertext expands the plaintext by roughly 20×, so one encrypted update of this model is ~48 MB — comfortably inside Flower's 512 MB gRPC message limit, while a wider model would not be.
+The channel count is deliberately modest: a CKKS ciphertext expands the float32 parameter vector by roughly 20.3× (or ~10.1× relative to float64), so one encrypted update of this 600,002-parameter model is ~48.7 MB — comfortably inside Flower's 512 MB gRPC message limit, while a wider model would not be.
 
 ---
 
@@ -63,7 +65,7 @@ The aggregator creates **one** CKKS context and distributes it to the nodes over
 
 **Why the weight is applied client-side.** Multiplying a CKKS ciphertext by a fractional scalar consumes a level of the modulus chain and loses precision (~3e-2 for a 600k-parameter model). The FedAvg weight `wᵢ = nᵢ / Σn` is derived from public sample counts, so each node applies it to the *plaintext* before encrypting. The server then performs only ciphertext addition — exact in CKKS — giving ~1e-6 precision.
 
-> **Critical implementation detail.** TenSEAL's CKKS is *symmetric*. Each node minting its own context yields ciphertexts under different keys whose homomorphic sum is meaningless (~1e34 rather than an error). `tests/test_he_shared_context.py` locks this down with a regression test.
+> **Critical implementation detail.** In TenSEAL CKKS, all participating nodes must encrypt under the exact same key pair distributed by the aggregator. Each node minting its own context yields ciphertexts under different keys whose homomorphic sum is meaningless (~1e34 rather than an error). `tests/test_he_shared_context.py` locks this down with a regression test. Note that the aggregator generates the key pair and holds the secret key, meaning it has the technical capability to decrypt individual updates if it deviates from protocol (see [SECURITY.md](SECURITY.md)).
 
 ### 3. Differential Privacy (DP-SGD)
 
@@ -86,13 +88,13 @@ g̃ = (1/B) · ( Σᵢ clip_C(gᵢ) + N(0, (σC)² I) )
 
 This bounds every single patient's influence while keeping the update unbiased. Clipping the *aggregate* instead would randomise the update direction entirely and the model would never converge.
 
-**Optimiser.** The nodes use **SGD** (`lr=0.05`, `momentum=0.9`), not Adam. DP-SGD noise interacts badly with Adam's per-parameter second-moment estimates, which *amplify* the injected noise rather than averaging it out. The calibration sweep in `tests/sweep3.py` confirmed `σ=0.5` converges (>33 % Dice, >99.2 % accuracy) whereas `σ=2.0` destroys the signal entirely.
+**Optimiser.** The nodes use **SGD** (`lr=0.05`, `momentum=0.9`), not Adam. In our benchmark setup on seed `20260101`, DP-SGD noise interacted poorly with Adam's per-parameter second-moment estimates, which amplified the injected noise rather than averaging it out and prevented model convergence. The calibration sweep in `tests/sweep3.py` confirmed `σ=0.5` converges (>33 % Dice, >99.2 % accuracy) whereas `σ=2.0` destroys the signal entirely.
 
 ### 4. Mutual TLS
 The aggregator and every node present certificates issued by a local CA (generated with `cryptography`, no OpenSSL binary required). The gRPC coordination plane requires client-certificate authentication.
 
 ### 5. Node Resilience
-If a hospital drops offline mid-round, the surviving nodes' weights sum to less than one. The server knows each participant's weight (public metadata), so it re-normalises the **decrypted aggregate** by the weight actually received — mathematically identical to FedAvg over the participants, without ever scaling an individual ciphertext.
+If a hospital drops offline mid-round, the surviving nodes' weights sum to less than one. The server knows each participant's weight (public metadata), so it re-normalises the **decrypted aggregate** by the weight actually received — mathematically identical to FedAvg over the participants, without ever scaling an individual ciphertext (note: the aggregator possesses the decryption key and could technically decrypt individual updates, but follows the protocol to decrypt only after summation).
 
 ---
 
@@ -321,7 +323,7 @@ Each hospital receives a distinct **scanner bias** (multiplicative gain + additi
 
 ## ⚠️ Known Limitations
 
-- **TenSEAL exposes only symmetric schemes** (CKKS/BFV/NONE). The shared context therefore lives inside the mutually-authenticated cluster boundary. A production deployment would distribute only an asymmetric public key.
+- **Key Management & Cryptographic Authority.** The aggregator generates the CKKS key pair and retains the secret key, meaning it has the technical capability to decrypt individual client updates. Nodes receive a public-only context. A zero-trust production deployment would require an asymmetric threshold homomorphic scheme (e.g., threshold CKKS) where the secret key is shared across hospitals.
 - **The synthetic dataset** is a structural surrogate for BraTS, not clinical data. Dice scores here are not comparable to published BraTS benchmarks.
 - **The privacy budget is large** (ε ≈ 297 over 10 rounds). Tightening it requires fewer rounds, a smaller sampling rate, or a larger `σ` — each of which trades accuracy for privacy.
 - **Single-process simulation.** The hospital nodes share a host; a real deployment would isolate them.

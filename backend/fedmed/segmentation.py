@@ -37,7 +37,7 @@ CLASS_COLORS: dict[int, tuple[int, int, int, int]] = {
 
 CLASS_NAMES: dict[int, str] = {
     0: "Background",
-    1: "Edema / Necrotic Core",
+    1: "Edema",
     2: "Enhancing Tumour",
 }
 

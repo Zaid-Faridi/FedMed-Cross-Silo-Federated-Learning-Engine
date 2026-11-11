@@ -2,13 +2,14 @@
 
 Bug
 ---
-Every hospital node used to mint its **own** CKKS context. TenSEAL's CKKS
-is symmetric, so ciphertexts encrypted under different keys cannot be
+Every hospital node used to mint its **own** independent CKKS context.
+In TenSEAL CKKS, ciphertexts encrypted under different keys cannot be
 added: the homomorphic sum silently produced values around 1e34, which
 poisoned the global model and made the federated run diverge to NaN.
 
-The fix is to create ONE context in the aggregator and ship it to the
-nodes over the (TLS-protected) round configuration.
+The requirement is that all nodes encrypt under the exact same key pair
+created by the aggregator and distributed over the TLS-protected round
+configuration.
 
 This test locks the behaviour in place.
 """

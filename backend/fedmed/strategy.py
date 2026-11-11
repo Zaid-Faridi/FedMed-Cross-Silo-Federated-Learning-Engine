@@ -21,11 +21,13 @@ the dashboard attribute a round to a specific hospital.
 
 Handling a node that drops offline mid-round
 ---------------------------------------------
-The surviving clients' weights sum to less than one. The server knows each
-participating client's weight (public metadata), so it re-normalises the
-*decrypted aggregate* by the weight it actually received. This keeps the
-update mathematically identical to FedAvg over the participants without
-ever needing to scale an individual ciphertext.
+        The surviving clients' weights sum to less than one. The server knows each
+        participating client's weight (public metadata), so it re-normalises the
+        *decrypted aggregate* by the weight it actually received. This keeps the
+        update mathematically identical to FedAvg over the participants without
+        ever needing to scale an individual ciphertext (note: the aggregator holds
+        the secret key and possesses the capability to decrypt individual updates,
+        but follows the protocol to decrypt only the aggregate).
 """
 
 from __future__ import annotations
@@ -427,9 +429,9 @@ class FederatedStrategy(Strategy):
     def _shared_context_blob(self) -> bytes:
         """Serialise the cluster-wide CKKS context for distribution.
 
-        TenSEAL's CKKS is symmetric, so every node has to encrypt under
-        the same key material. The blob is cached because serialising a
-        16k-degree context is comparatively expensive.
+        In TenSEAL CKKS, every node has to encrypt under the exact same
+        key pair distributed by the aggregator. The blob is cached because
+        serialising a 16k-degree context is comparatively expensive.
         """
         if not self._server_he.available:
             return b""

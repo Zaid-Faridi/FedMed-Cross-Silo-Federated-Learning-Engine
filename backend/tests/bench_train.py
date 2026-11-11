@@ -41,7 +41,7 @@ def bench(ch, st, res_units, size, batch, label=""):
     single = (time.time() - t0) / 2
 
     print(f"{label:28s} params={n:>9,}  batch_step={dt:5.3f}s  "
-          f"per_sample={single:5.3f}s  he_size@20x={n*4*20/1e6:6.1f}MB")
+          f"per_sample={single:5.3f}s  he_size@20.3x={n*4*20.3/1e6:6.1f}MB")
 
 
 if __name__ == "__main__":
