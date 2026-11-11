@@ -17,8 +17,9 @@ FedMed coordinates federated training of volumetric MRI segmentation models acro
 │  - Aggregates updates and decrypts final sum               │
 └─────────────────────────────▲──────────────────────────────┘
                               │
-                    mTLS Channel (RSA-2048)
-             Single shared client certificate
+               Flower Port 8001: Server-side TLS
+             Node Control Ports (9101-9103): mTLS
+              Shared client cert on control plane
                               │
 ┌─────────────────────────────▼──────────────────────────────┐
 │                  Hospital Node Boundary                    │
@@ -58,8 +59,10 @@ FedMed coordinates federated training of volumetric MRI segmentation models acro
 * **Defends Against:** Network eavesdroppers and intermediate transport proxies inspecting plain weight deltas.
 * **Mechanism:** Model updates are encrypted under a shared public evaluation context before leaving the node. Ciphertexts are summed in ciphertext space.
 
-### D. Mutual TLS (mTLS)
-* **Defends Against:** Man-in-the-middle (MITM) network tampering, packet inspection, and unauthorized plaintext traffic injection on gRPC channels between nodes and the aggregator.
+### D. Transport Security (Server-side TLS & Node Control mTLS)
+* **Defends Against:** Man-in-the-middle (MITM) network tampering, packet inspection, and unauthorized plaintext traffic injection on gRPC channels.
+* **Flower Training Channel (port 8001):** Uses server-side TLS (RSA-2048). Flower's server verifies server identity to connecting clients using the local CA, encrypting traffic in transit; however, Flower's internal gRPC server sets `require_client_auth=False`, meaning client certificates are not verified on port 8001.
+* **Node Control Plane (ports 9101-9103):** FedMed's node control services enforce mutual TLS (mTLS) with `require_client_auth=True`.
 
 ---
 
@@ -76,9 +79,11 @@ The following attack vectors and threat scenarios are **explicitly not protected
    * **There is no defense against malicious clients.** Because updates arrive as opaque CKKS ciphertexts, the aggregator **cannot inspect** gradient distributions, detect backdoors, or identify data poisoning attacks.
    * Byzantine-robust aggregation algorithms (such as Krum, Trimmed Mean, or coordinate-wise median) cannot be evaluated over CKKS ciphertexts without expensive non-linear cryptographic circuits.
 
-3. **Shared Client TLS Credential:**
-   * All hospital nodes share a **single client certificate** (`client.crt`, `client.key`) issued with Common Name `fedmed-node`.
-   * The transport layer authenticates that a caller is an authorized cluster member, but it does **not** uniquely identify individual hospitals at the cryptographic transport layer.
+3. **Flower Training Channel Does Not Require Client Authentication (Server-Side TLS Only):**
+   * The Flower federated learning training channel (`127.0.0.1:8001`) operates with **server-side TLS**, not mutual TLS. Although the aggregator is provided root certificates, Flower's internal `flwr.supercore.grpc.generic_create_grpc_server` sets `require_client_auth=False`.
+   * As verified by empirical connection probing, clients can connect to port 8001 presenting only the CA certificate with no client certificate.
+   * Only the separate hospital node control services (ports `9101`-`9103`) strictly enforce mTLS (`require_client_auth=True`).
+   * On port 9101-9103 mTLS, all hospital nodes share a **single client certificate** (`client.crt`, `client.key`) issued with Common Name `fedmed-node`, so transport-layer caller identity is cluster-wide rather than per-hospital.
 
 4. **Self-Reported Node Identity:**
    * Hospital node identity (`hospital_id`, `node_id`, `samples`) is self-reported over Flower's `get_properties` hook and gRPC metadata.
