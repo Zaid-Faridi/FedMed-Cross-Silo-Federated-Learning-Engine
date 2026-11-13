@@ -41,6 +41,7 @@ def run_node(
     server_address: str | None = None,
     wait_for_server: bool = True,
     use_tls: bool = True,
+    seed: int | None = None,
 ) -> None:
     """Start a hospital node and block until it disconnects."""
     hospital = next(h for h in CONFIG.hospitals if h.hospital_id == hospital_id)
@@ -77,7 +78,7 @@ def run_node(
             )
 
     # 3. Flower client.
-    client = HospitalClient(hospital.hospital_id, hospital.node_id)
+    client = HospitalClient(hospital.hospital_id, hospital.node_id, seed=seed)
     STATE.set_node_status(
         hospital.hospital_id, NodeStatus.ONLINE, "Client started"
     )
@@ -121,6 +122,7 @@ def main() -> None:
     parser.add_argument("--server", type=str, default=None)
     parser.add_argument("--no-wait", action="store_true")
     parser.add_argument("--insecure", action="store_true")
+    parser.add_argument("--seed", type=int, default=None, help="Random seed (defaults to FEDMED_SEED or 20260101)")
     parser.add_argument("--log-level", type=str, default="INFO")
     args = parser.parse_args()
 
@@ -134,6 +136,7 @@ def main() -> None:
         server_address=args.server,
         wait_for_server=not args.no_wait,
         use_tls=not args.insecure,
+        seed=args.seed,
     )
 
 

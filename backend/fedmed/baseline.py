@@ -23,6 +23,7 @@ from .config import CONFIG, MODEL_ROOT
 from .data import load_global_validation, load_pooled_training_set
 from .metrics import dice_ce_loss, evaluate_model
 from .model import build_model, count_parameters
+from .seed import set_seed
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +37,14 @@ def train_baseline(
     dice_weight: float = 1.0,
     output_dir: Path | None = None,
     device: str = "cpu",
+    seed: int | None = None,
 ) -> dict:
     """Train the centralized baseline model.
 
     Returns:
         A metrics dict with the per-epoch history and the final scores.
     """
+    effective_seed = set_seed(seed)
     out_dir = Path(output_dir) if output_dir else MODEL_ROOT
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -191,10 +194,16 @@ def train_baseline(
 
 
 def main() -> None:
+    import argparse
+    parser = argparse.ArgumentParser(description="FedMed centralized baseline trainer")
+    parser.add_argument("--epochs", type=int, default=30)
+    parser.add_argument("--seed", type=int, default=None, help="Random seed (defaults to FEDMED_SEED or 20260101)")
+    args = parser.parse_args()
+
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s | %(levelname)-7s | %(message)s"
     )
-    train_baseline()
+    train_baseline(epochs=args.epochs, seed=args.seed)
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ from pathlib import Path
 from flwr.compat.server.app import ServerConfig, start_server
 
 from .config import CONFIG, DATA_ROOT, MODEL_ROOT
+from .seed import set_seed
 from .state import STATE
 from .strategy import FederatedStrategy
 
@@ -138,6 +139,7 @@ def run_federated(
     enable_dp: bool = True,
     use_tls: bool = True,
     install_signal_handlers: bool = True,
+    seed: int | None = None,
 ) -> dict:
     """Run the federated training loop and return the summary.
 
@@ -151,7 +153,9 @@ def run_federated(
         install_signal_handlers: Set to ``False`` when running off the
             main thread (the API's background job) -- Flower's signal
             handlers can only be installed on the main thread.
+        seed: Random seed (defaults to FEDMED_SEED or 20260101).
     """
+    effective_seed = set_seed(seed)
     if not (DATA_ROOT / "manifest.json").exists():
         raise FileNotFoundError(
             "Dataset not prepared. Run `python -m fedmed.prepare_data` first."
@@ -268,6 +272,7 @@ def main() -> None:
     parser.add_argument(
         "--no-dp", action="store_true", help="Disable differential privacy"
     )
+    parser.add_argument("--seed", type=int, default=None, help="Random seed (defaults to FEDMED_SEED or 20260101)")
     parser.add_argument("--log-level", type=str, default="INFO")
     args = parser.parse_args()
 
@@ -282,6 +287,7 @@ def main() -> None:
         dropout_round=args.dropout_round,
         enable_he=not args.no_he,
         enable_dp=not args.no_dp,
+        seed=args.seed,
     )
 
 
