@@ -264,6 +264,7 @@ def build_partition(
     cfg = CONFIG.data
     total_train = cfg.num_samples
     total_val = cfg.num_val_samples
+    total_test = cfg.num_test_samples
     biases = _scanner_biases()
 
     splits = cfg.hospital_split
@@ -271,14 +272,18 @@ def build_partition(
     train_counts[-1] += total_train - sum(train_counts)
     val_counts = [int(total_val * s) for s in splits]
     val_counts[-1] += total_val - sum(val_counts)
+    test_counts = [int(total_test * s) for s in splits]
+    test_counts[-1] += total_test - sum(test_counts)
 
     manifest: dict = {
         "patch_size": list(cfg.patch_size),
         "train": {},
         "validation": {},
+        "test": {},
         "scanner_biases": biases,
         "num_train": total_train,
         "num_val": total_val,
+        "num_test": total_test,
     }
 
     partitions: dict[str, dict] = {}
@@ -288,6 +293,7 @@ def build_partition(
         seed = cfg.seed + h * 104729
         n_train = train_counts[h]
         n_val = val_counts[h]
+        n_test = test_counts[h]
 
         hospital.data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -303,9 +309,16 @@ def build_partition(
             seed=seed + 500009,
             scanner_bias=bias,
         )
+        test_ds = BrainTumorDataset(
+            hospital_id=hospital.hospital_id,
+            samples=n_test,
+            seed=seed + 900001,
+            scanner_bias=bias,
+        )
 
         train_path = hospital.data_dir / "train.pt"
         val_path = hospital.data_dir / "val.pt"
+        test_path = hospital.data_dir / "test.pt"
 
         torch.save(
             {
@@ -330,8 +343,39 @@ def build_partition(
             {
                 "images": torch.stack([val_ds[i][0] for i in range(len(val_ds))]),
                 "labels": torch.stack([val_ds[i][1] for i in range(len(val_ds))]),
+                "metadata": [
+                    VolumeMetadata(
+                        sample_id=f"{hospital.node_id}-VAL-{i:04d}",
+                        hospital_id=hospital.hospital_id,
+                        shape=cfg.patch_size,
+                        seed=(seed + 500009) + i * 7919,
+                        scanner_bias=bias,
+                        noise_sigma=0.0,
+                        tumour_volume_fraction=0.0,
+                    ).to_dict()
+                    for i in range(len(val_ds))
+                ],
             },
             val_path,
+        )
+        torch.save(
+            {
+                "images": torch.stack([test_ds[i][0] for i in range(len(test_ds))]),
+                "labels": torch.stack([test_ds[i][1] for i in range(len(test_ds))]),
+                "metadata": [
+                    VolumeMetadata(
+                        sample_id=f"{hospital.node_id}-TEST-{i:04d}",
+                        hospital_id=hospital.hospital_id,
+                        shape=cfg.patch_size,
+                        seed=(seed + 900001) + i * 7919,
+                        scanner_bias=bias,
+                        noise_sigma=0.0,
+                        tumour_volume_fraction=0.0,
+                    ).to_dict()
+                    for i in range(len(test_ds))
+                ],
+            },
+            test_path,
         )
 
         manifest["train"][hospital.hospital_id] = {
@@ -346,15 +390,23 @@ def build_partition(
             "scanner_bias": bias,
             "seed": seed + 500009,
         }
+        manifest["test"][hospital.hospital_id] = {
+            "node_id": hospital.node_id,
+            "count": n_test,
+            "scanner_bias": bias,
+            "seed": seed + 900001,
+        }
 
         partitions[hospital.hospital_id] = {
             "hospital_id": hospital.hospital_id,
             "node_id": hospital.node_id,
             "train_samples": n_train,
             "val_samples": n_val,
+            "test_samples": n_test,
             "scanner_bias": bias,
             "train_path": str(train_path),
             "val_path": str(val_path),
+            "test_path": str(test_path),
         }
 
     with open(root / "manifest.json", "w") as fh:
@@ -385,6 +437,31 @@ def load_global_validation(
         blob = torch.load(
             hospital.data_dir / "val.pt", map_location="cpu", weights_only=False
         )
+        images.append(blob["images"])
+        labels.append(blob["labels"])
+
+    return torch.cat(images, dim=0), torch.cat(labels, dim=0)
+
+
+def load_global_test(
+    data_root: Path | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Reconstruct the pooled held-out test set for final evaluation."""
+    root = Path(data_root) if data_root else DATA_ROOT
+    manifest_path = root / "manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(
+            f"Dataset manifest not found at {manifest_path}. Run `python -m fedmed.prepare_data` first."
+        )
+
+    images, labels = [], []
+    for hospital in CONFIG.hospitals:
+        test_path = hospital.data_dir / "test.pt"
+        if not test_path.exists():
+            raise FileNotFoundError(
+                f"Test split not found at {test_path}. Run `python -m fedmed.prepare_data` first."
+            )
+        blob = torch.load(test_path, map_location="cpu", weights_only=False)
         images.append(blob["images"])
         labels.append(blob["labels"])
 

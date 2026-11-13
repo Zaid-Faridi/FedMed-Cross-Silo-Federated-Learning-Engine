@@ -48,6 +48,7 @@ class DataConfig:
 
     num_samples: int = 120
     num_val_samples: int = 36
+    num_test_samples: int = 24
     patch_size: tuple[int, int, int] = (64, 64, 64)
     seed: int = 20260101
     # Hospital split ratios must sum to 1.0.
