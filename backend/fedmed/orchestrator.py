@@ -113,7 +113,11 @@ def _node_thread(
 
         if use_tls:
             ca = Path(CONFIG.server.ca_cert)
-            root = ca.read_bytes() if ca.exists() else None
+            if not ca.exists():
+                raise FileNotFoundError(
+                    f"CA certificate not found at {ca}. Run python -m fedmed.tls or pass --insecure."
+                )
+            root = ca.read_bytes()
             start_client(
                 server_address=address,
                 client=client,
@@ -155,6 +159,17 @@ def run_cluster(
         raise FileNotFoundError(
             "Dataset not prepared. Run `python -m fedmed.prepare_data` first."
         )
+
+    if use_tls:
+        ca = Path(CONFIG.server.ca_cert)
+        cert = Path(CONFIG.server.server_cert)
+        key = Path(CONFIG.server.server_key)
+        missing = [str(p) for p in (ca, cert, key) if not p.exists()]
+        if missing:
+            raise FileNotFoundError(
+                f"TLS material incomplete; missing: {', '.join(missing)}. "
+                "Run python -m fedmed.tls or pass --insecure."
+            )
 
     server_address = address or CONFIG.server.fl_address
     num_rounds = rounds if rounds is not None else CONFIG.federated.num_rounds

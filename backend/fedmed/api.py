@@ -152,6 +152,7 @@ def _restore_persisted_run() -> None:
                 accountant.get("delta", CONFIG.privacy.dp_delta)
             )
             STATE.dp_rounds = int(accountant.get("rounds", 0))
+            STATE.dp_per_node = dict(accountant.get("per_node") or {})
 
     logger.info(
         "Restored persisted run: %s rounds, best dice %.2f%%",
@@ -443,6 +444,7 @@ def get_privacy() -> dict:
             "delta": STATE.dp_delta,
             "rounds": STATE.dp_rounds,
             "projected_epsilon": CONFIG.privacy.dp_epsilon_bound,
+            "per_node": STATE.dp_per_node,
         },
         "privacy_events": privacy_events,
         "security_events": security_events,

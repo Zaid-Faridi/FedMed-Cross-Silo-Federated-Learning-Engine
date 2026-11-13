@@ -4,7 +4,7 @@
 
 For in-depth technical documentation and threat modeling, see [ARCHITECTURE.md](ARCHITECTURE.md) and [SECURITY.md](SECURITY.md).
 
-FedMed lets three hospitals collaboratively train a 3D U-Net for brain-tumour segmentation on MRI volumes **without any raw patient data leaving the hospital**. Model updates are encrypted with CKKS homomorphic encryption, perturbed with a differentially-private mechanism, and carried over mutual-TLS gRPC channels.
+FedMed lets three hospitals collaboratively train a 3D U-Net for brain-tumour segmentation on MRI volumes **without any raw patient data leaving the hospital**. Model updates are encrypted with CKKS homomorphic encryption, perturbed with a differentially-private mechanism, and carried over TLS-protected gRPC channels.
 
 ---
 
@@ -90,8 +90,8 @@ This bounds every single patient's influence while keeping the update unbiased. 
 
 **Optimiser.** The nodes use **SGD** (`lr=0.05`, `momentum=0.9`), not Adam. In our benchmark setup on seed `20260101`, DP-SGD noise interacted poorly with Adam's per-parameter second-moment estimates, which amplified the injected noise rather than averaging it out and prevented model convergence. The calibration sweep in `tests/sweep3.py` confirmed `σ=0.5` converges (>33 % Dice, >99.2 % accuracy) whereas `σ=2.0` destroys the signal entirely.
 
-### 4. Mutual TLS
-The aggregator and every node present certificates issued by a local CA (generated with `cryptography`, no OpenSSL binary required). The gRPC coordination plane requires client-certificate authentication.
+### 4. Transport Security (TLS & Control-Plane mTLS)
+The aggregator and every node present certificates issued by a local CA (generated with `cryptography`, no OpenSSL binary required). The Flower training channel (port 8001) operates with server-authenticated TLS. The hospital node coordination services (ports 9101–9103) strictly require client-certificate authentication (mutual TLS).
 
 ### 5. Node Resilience
 If a hospital drops offline mid-round, the surviving nodes' weights sum to less than one. The server knows each participant's weight (public metadata), so it re-normalises the **decrypted aggregate** by the weight actually received — mathematically identical to FedAvg over the participants, without ever scaling an individual ciphertext (note: the aggregator possesses the decryption key and could technically decrypt individual updates, but follows the protocol to decrypt only after summation).
@@ -109,7 +109,7 @@ If a hospital drops offline mid-round, the surviving nodes' weights sum to less 
                 │ REST + WebSocket         │ /ws/metrics
                 │ (FastAPI, :8000)         │
 ┌───────────────┴──────────────────────────▼───────────────────┐
-│  Aggregator  (Flower server, gRPC :8001, mutual TLS)        │
+│  Aggregator  (Flower server, gRPC :8001, TLS)               │
 │  FederatedStrategy — homomorphic CKKS aggregation             │
 │  RDP accountant · round auditing · gRPC health checks        │
 └───────────────▲──────────────────────────▲───────────────────┘
@@ -230,7 +230,7 @@ npm run dev          # http://127.0.0.1:5173
 | --- | --- |
 | `5173` | React dashboard (Vite) |
 | `8000` | FedMed REST API + WebSocket |
-| `8001` | Flower aggregator (gRPC, mutual TLS) |
+| `8001` | Flower aggregator (gRPC, TLS) |
 | `9101-9103` | Hospital node gRPC/TLS services |
 
 ---
@@ -315,7 +315,7 @@ Each hospital receives a distinct **scanner bias** (multiplicative gain + additi
 | Federated learning | Flower 1.42 |
 | Homomorphic encryption | TenSEAL 0.3 (CKKS) |
 | Differential privacy | Custom DP-SGD + RDP accountant |
-| Communication | gRPC + mutual TLS, Protobuf |
+| Communication | gRPC + TLS (mTLS on node control plane), Protobuf |
 | API | FastAPI, Uvicorn, WebSocket |
 | Frontend | React 19, Vite 8, Recharts 3 |
 

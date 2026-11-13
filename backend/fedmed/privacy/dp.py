@@ -59,6 +59,7 @@ class DPAccountant:
     participation_ratio: float = 1.0
     sample_rate: float = field(default=CONFIG.privacy.dp_sample_rate)
     patients_protected: int = 0
+    per_node: dict[str, SampledGaussianAccountant] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self._accountant = SampledGaussianAccountant(
@@ -66,6 +67,13 @@ class DPAccountant:
             delta=self.delta,
             sample_rate=self.sample_rate,
         )
+        if not self.per_node:
+            for hospital in CONFIG.hospitals:
+                self.per_node[hospital.hospital_id] = SampledGaussianAccountant(
+                    noise_multiplier=self.noise_multiplier,
+                    delta=self.delta,
+                    sample_rate=self.sample_rate,
+                )
 
     # -- accounting ---------------------------------------------------
     def spend(self, rounds: int = 1) -> None:
@@ -76,6 +84,28 @@ class DPAccountant:
     def spend_steps(self, steps: int, sample_rate: float | None = None) -> None:
         """Charge optimiser steps (the unit the RDP bound is defined over)."""
         self._accountant.spend(steps, sample_rate=sample_rate)
+
+    def spend_node_steps(
+        self, hospital_id: str, steps: int, sample_rate: float | None = None
+    ) -> None:
+        """Charge optimiser steps for a specific hospital node."""
+        if hospital_id not in self.per_node:
+            self.per_node[hospital_id] = SampledGaussianAccountant(
+                noise_multiplier=self.noise_multiplier,
+                delta=self.delta,
+                sample_rate=sample_rate if sample_rate is not None else self.sample_rate,
+            )
+        self.per_node[hospital_id].spend(
+            steps,
+            sample_rate=sample_rate if sample_rate is not None else self.sample_rate,
+        )
+
+    def get_per_node_dict(self) -> dict[str, dict]:
+        """Return serialized per-node DP accounting summaries."""
+        return {
+            h_id: acct.to_dict()
+            for h_id, acct in self.per_node.items()
+        }
 
     @property
     def epsilon(self) -> float:
@@ -95,6 +125,7 @@ class DPAccountant:
                 "clip_norm": self.clip_norm,
                 "participation_ratio": self.participation_ratio,
                 "patients_protected": self.patients_protected,
+                "per_node": self.get_per_node_dict(),
             }
         )
         return data

@@ -23,13 +23,13 @@ FedMed simulates a multi-institution cross-silo federated learning deployment wh
 │  ├── /ws/metrics WebSocket server                                │
 │  └── RuntimeState & EventBus (pub-sub bridge)                    │
 │                                                                  │
-│  Flower Server (:8001, mutual TLS)                               │
+│  Flower Server (:8001, TLS)                                      │
 │  ├── FederatedStrategy (FedAvg over plaintext-scaled deltas)     │
 │  ├── CKKS Server Context (holds secret + evaluation keys)        │
 │  └── RDP Accountant (integer-order Rényi privacy accounting)     │
 └───────────────────▲─────────────▲─────────────▲──────────────────┘
                     │             │             │
-                    │ gRPC (mTLS) │ gRPC (mTLS) │ gRPC (mTLS)
+                    │ gRPC (TLS)  │ gRPC (TLS)  │ gRPC (TLS)
                     │ Flower :8001│ Flower :8001│ Flower :8001
                     ▼             ▼             ▼
        ┌────────────────────────┐ ┌────────────────────────┐ ┌────────────────────────┐
@@ -46,7 +46,7 @@ FedMed simulates a multi-institution cross-silo federated learning deployment wh
 ### Components
 1. **React 19 Frontend (`frontend/`):** Single-page web dashboard using Vite 8, Recharts 3, and native CSS. Provides real-time training curves, per-hospital telemetry cards, axial MRI slice/tumor mask viewers, and privacy budget indicators.
 2. **FastAPI Coordination Layer (`backend/fedmed/api.py`):** Runs on port `8000`. Exposes REST management endpoints and a WebSocket channel (`/ws/metrics`) that receives events published from training threads via a thread-safe `EventBus`.
-3. **Flower Aggregator (`backend/fedmed/server.py`, `backend/fedmed/strategy.py`):** Runs on port `8001` over mutual TLS. Coordinates federated training rounds using a custom `FederatedStrategy`. It generates the CKKS cryptographic context, distributes the public key material, receives client updates, sums encrypted deltas, decrypts the aggregate, and updates global model parameters.
+3. **Flower Aggregator (`backend/fedmed/server.py`, `backend/fedmed/strategy.py`):** Runs on port `8001` over server-side TLS (Flower verifies server certificate to clients; client certificates are not required by Flower's gRPC server). Coordinates federated training rounds using a custom `FederatedStrategy`. It generates the CKKS cryptographic context, distributes the public key material, receives client updates, sums encrypted deltas, decrypts the aggregate, and updates global model parameters.
 4. **Hospital Nodes (`backend/fedmed/client.py`, `backend/fedmed/node.py`):** Three simulated silos (`HOSP-001`, `HOSP-002`, `HOSP-003`). Each node manages:
    * A private partition of synthetic 3D MRI volumes.
    * A local DP-SGD training loop with per-sample gradient clipping and calibrated Gaussian perturbation.
@@ -63,7 +63,7 @@ As defined in `ServerConfig` and `HospitalConfig` in `backend/fedmed/config.py`:
 | :--- | :--- | :--- | :--- | :--- |
 | **Frontend UI** | `localhost` | `5173` | HTTP | None (local development server) |
 | **FedMed REST / WebSocket API** | `127.0.0.1` | `8000` | HTTP / WebSocket | CORS enabled |
-| **Flower Aggregator** | `127.0.0.1` | `8001` | gRPC | Mutual TLS (mTLS) with Local CA validation |
+| **Flower Aggregator** | `127.0.0.1` | `8001` | gRPC | Server-side TLS with Local CA validation |
 | **Hospital Node 1 Control Plane** | `127.0.0.1` | `9101` | gRPC | Mutual TLS (mTLS) with Local CA validation |
 | **Hospital Node 2 Control Plane** | `127.0.0.1` | `9102` | gRPC | Mutual TLS (mTLS) with Local CA validation |
 | **Hospital Node 3 Control Plane** | `127.0.0.1` | `9103` | gRPC | Mutual TLS (mTLS) with Local CA validation |

@@ -247,6 +247,34 @@ class FederatedStrategy(Strategy):
 
         weight_sum = sum(weights)
 
+        # Fail-closed HE check: if homomorphic encryption is expected, reject round
+        # if any client submitted an unencrypted update or server HE is unavailable.
+        if self.enable_he:
+            if encrypted_count < len(payloads) or not self._server_he.available:
+                reason = (
+                    "unencrypted_update_received"
+                    if encrypted_count < len(payloads)
+                    else "server_he_unavailable"
+                )
+                logger.error(
+                    "Round %d rejected: HE enabled but %d/%d updates encrypted (server HE: %s)",
+                    server_round,
+                    encrypted_count,
+                    len(payloads),
+                    self._server_he.available,
+                )
+                STATE.log_security_event(
+                    "round_rejected",
+                    {
+                        "round": server_round,
+                        "reason": reason,
+                        "encrypted_count": encrypted_count,
+                        "total_payloads": len(payloads),
+                    },
+                )
+                # Keep global model unchanged; return current parameters and empty metrics
+                return self._to_parameters(self.reference_state), {}
+
         use_he = (
             self.enable_he
             and encrypted_count == len(payloads)
@@ -266,9 +294,16 @@ class FederatedStrategy(Strategy):
                 )
                 aggregation_mode = "homomorphic_ckks"
             except Exception as exc:  # pragma: no cover - defensive
-                logger.error("HE aggregation failed (%s); falling back", exc)
-                aggregated_state = self._plaintext_aggregate(payloads, weights)
-                aggregation_mode = "plaintext_fallback"
+                logger.error("HE aggregation failed (%s); rejecting round (fail-closed)", exc)
+                STATE.log_security_event(
+                    "round_rejected",
+                    {
+                        "round": server_round,
+                        "reason": "he_aggregation_failed",
+                        "error": str(exc),
+                    },
+                )
+                return self._to_parameters(self.reference_state), {}
         else:
             aggregated_state = self._plaintext_aggregate(payloads, weights)
             aggregation_mode = "plaintext"
@@ -288,8 +323,15 @@ class FederatedStrategy(Strategy):
             # Charge the privacy budget for the optimiser steps that ran.
             self._dp_accountant.spend(1)
             self._dp_accountant.spend_steps(dp_steps)
+            for node_id, metrics in client_metrics.items():
+                hospital_id = self.node_to_hospital.get(node_id)
+                if hospital_id:
+                    steps_node = int(metrics.get("dp_steps") or 0)
+                    self._dp_accountant.spend_node_steps(hospital_id, steps_node)
+
             STATE.dp_epsilon = self._dp_accountant.epsilon
             STATE.dp_rounds = self._dp_accountant.rounds
+            STATE.dp_per_node = self._dp_accountant.get_per_node_dict()
 
         eval_metrics = self._evaluate_global()
 
