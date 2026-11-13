@@ -74,7 +74,10 @@ function Dashboard({ fed, onNavigate }) {
     rounds,
     latest,
     baselineDice,
+    baselineTestDice,
     federatedDice,
+    federatedValDice,
+    federatedTestDice,
     onlineNodes,
     totalNodes,
     diceGap,
@@ -98,8 +101,13 @@ function Dashboard({ fed, onNavigate }) {
 
   const diceCaption =
     baselineDice && diceGap !== null
-      ? `${diceRatio}% of the centralized baseline (${diceGap}% gap)`
+      ? `${diceRatio}% of baseline val (${diceGap}% gap)`
       : "Run a baseline to enable the comparison";
+
+  const testDiceCaption =
+    baselineTestDice && federatedTestDice
+      ? `Baseline test: ${baselineTestDice.toFixed(1)}%`
+      : "Evaluated on held-out test split";
 
   const lossCaption = latest
     ? `Round ${latest.round} · ${latest.aggregation ?? "aggregation"}`
@@ -130,18 +138,18 @@ function Dashboard({ fed, onNavigate }) {
           icon="🔁"
         />
         <StatCard
-          label="Global Dice Score"
-          value={`${federatedDice.toFixed(2)}%`}
+          label="Validation Dice"
+          value={latest ? `${(federatedValDice || federatedDice).toFixed(2)}%` : "—"}
           caption={diceCaption}
           tone="success"
           icon="🎯"
         />
         <StatCard
-          label="Training Loss"
-          value={latest ? Number(latest.loss ?? 0).toFixed(4) : "—"}
-          caption={lossCaption}
-          tone="danger"
-          icon="📉"
+          label="Held-Out Test Dice"
+          value={federatedTestDice ? `${federatedTestDice.toFixed(2)}%` : "—"}
+          caption={testDiceCaption}
+          tone="info"
+          icon="🧪"
         />
         <StatCard
           label="Active Hospitals"

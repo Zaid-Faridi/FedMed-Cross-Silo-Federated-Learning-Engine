@@ -127,6 +127,14 @@ class FederatedStrategy(Strategy):
             for k, v in self.global_model.state_dict().items()
         }
 
+        # Model checkpointing: best round selected on validation split only
+        self.best_val_dice: float = -1.0
+        self.best_round: int = 0
+        self.best_state: dict[str, torch.Tensor] = {
+            k: v.detach().cpu().clone() for k, v in self.reference_state.items()
+        }
+        self.best_val_metrics: dict = {}
+
         logger.info(
             "Strategy ready: rounds=%d HE=%s DP=%s dropout_round=%s",
             self.num_rounds,
@@ -334,6 +342,16 @@ class FederatedStrategy(Strategy):
             STATE.dp_per_node = self._dp_accountant.get_per_node_dict()
 
         eval_metrics = self._evaluate_global()
+
+        # Select the best model weights on validation split only
+        val_dice = float(eval_metrics.get("dice", 0.0))
+        if val_dice > self.best_val_dice:
+            self.best_val_dice = val_dice
+            self.best_round = round_index
+            self.best_val_metrics = dict(eval_metrics)
+            self.best_state = {
+                k: v.detach().cpu().clone() for k, v in self.reference_state.items()
+            }
 
         for node_id, metrics in client_metrics.items():
             hospital_id = self.node_to_hospital.get(node_id)
@@ -589,6 +607,22 @@ class FederatedStrategy(Strategy):
 
         loader = make_loader(val_x, val_y, batch_size=2, shuffle=False)
         return evaluate_model(self.global_model, loader, CONFIG.model.num_classes)
+
+    def evaluate_test(self, state: dict | None = None) -> dict:
+        """Evaluate a model state (defaults to best_state) on the held-out test set."""
+        from .data import load_global_test, make_loader
+
+        target_state = state if state is not None else self.best_state
+        model = build_model()
+        load_state_dict(model, target_state)
+
+        try:
+            test_x, test_y = load_global_test()
+        except FileNotFoundError:
+            return {"dice": 0.0, "loss": 0.0, "accuracy": 0.0, "per_class_dice": {}}
+
+        loader = make_loader(test_x, test_y, batch_size=2, shuffle=False)
+        return evaluate_model(model, loader, CONFIG.model.num_classes)
 
     def _to_parameters(self, state: dict) -> fct.Parameters:
         flat = he_mod.tensor_to_flat_vector(state).astype(np.float32)

@@ -65,30 +65,45 @@ def _write_summary(summary: dict) -> None:
         json.dump(summary, fh, indent=2)
 
 
-def _build_summary(history: list) -> dict:
+def _build_summary(history: list, test_metrics: dict | None = None, best_val_dice: float | None = None, best_round: int | None = None) -> dict:
     """Compare the federated run against the centralized baseline."""
     baseline = STATE.baseline or {}
     final = history[-1] if history else {}
 
     fed_dice = float(final.get("dice", 0.0))
     base_dice = float(baseline.get("best_dice", 0.0))
+    base_test_dice = float(baseline.get("test_dice", 0.0))
+
+    val_best = float(best_val_dice) if best_val_dice is not None and best_val_dice >= 0 else max((r.get("dice", 0.0) for r in history), default=0.0)
+    fed_test_dice = float((test_metrics or {}).get("dice", 0.0))
 
     gap = 0.0
     if base_dice > 0:
-        gap = round(base_dice - fed_dice, 4)
+        gap = round(base_dice - val_best, 4)
+
+    test_gap = 0.0
+    if base_test_dice > 0:
+        test_gap = round(base_test_dice - fed_test_dice, 4)
 
     ratio = 0.0
     if base_dice > 0:
-        ratio = round((fed_dice / base_dice) * 100, 2)
+        ratio = round((val_best / base_dice) * 100, 2)
 
     return {
         "federated_final_dice": fed_dice,
         "federated_final_loss": final.get("loss", 0.0),
         "federated_final_accuracy": final.get("accuracy", 0.0),
-        "federated_best_dice": max((r.get("dice", 0.0) for r in history), default=0.0),
+        "federated_best_dice": val_best,
+        "federated_best_round": best_round or 0,
+        "federated_test_dice": fed_test_dice,
+        "test_dice": fed_test_dice,
+        "val_dice": val_best,
+        "test_metrics": test_metrics or {},
         "baseline_best_dice": base_dice,
+        "baseline_test_dice": base_test_dice,
         "baseline_final_loss": baseline.get("final_loss", 0.0),
         "dice_gap": gap,
+        "test_dice_gap": test_gap,
         "dice_ratio_pct": ratio,
         "rounds_completed": len(history),
         "converged": bool(base_dice == 0.0 or gap <= 5.0),
@@ -219,7 +234,13 @@ def run_federated(
         raise
 
     rounds_data = STATE.rounds_snapshot()
-    summary = _build_summary(rounds_data)
+    test_metrics = strategy.evaluate_test()
+    summary = _build_summary(
+        rounds_data,
+        test_metrics=test_metrics,
+        best_val_dice=strategy.best_val_dice,
+        best_round=strategy.best_round,
+    )
     summary["history"] = rounds_data
 
     # Persist the trained global model so the MRI page can segment with it.
@@ -229,7 +250,7 @@ def run_federated(
         torch.save(
             {
                 "state_dict": {
-                    k: v.detach().cpu() for k, v in strategy.reference_state.items()
+                    k: v.detach().cpu() for k, v in strategy.best_state.items()
                 },
                 "config": {
                     "rounds": num_rounds,
@@ -238,7 +259,11 @@ def run_federated(
                 },
                 "metrics": {
                     "final_dice": summary["federated_final_dice"],
-                    "best_dice": summary["federated_best_dice"],
+                    "best_val_dice": summary["federated_best_dice"],
+                    "best_round": summary["federated_best_round"],
+                    "test_dice": summary["federated_test_dice"],
+                    "test_loss": test_metrics.get("loss", 0.0),
+                    "test_accuracy": test_metrics.get("accuracy", 0.0),
                     "final_loss": summary["federated_final_loss"],
                     "final_accuracy": summary["federated_final_accuracy"],
                 },
@@ -252,10 +277,12 @@ def run_federated(
     _write_summary(summary)
 
     logger.info(
-        "Federated run complete: final dice=%.2f%% (baseline %.2f%%, gap %.2f)",
-        summary["federated_final_dice"],
+        "Federated run complete: best val dice=%.2f%% (round %d), test dice=%.2f%% (baseline val %.2f%%, test %.2f%%)",
+        summary["federated_best_dice"],
+        summary["federated_best_round"],
+        summary["federated_test_dice"],
         summary["baseline_best_dice"],
-        summary["dice_gap"],
+        summary["baseline_test_dice"],
     )
 
     return summary

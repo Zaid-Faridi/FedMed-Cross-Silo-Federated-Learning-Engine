@@ -25,7 +25,10 @@ function Training({ fed }) {
     rounds,
     latest,
     baselineDice,
+    baselineTestDice,
     federatedDice,
+    federatedValDice,
+    federatedTestDice,
     progress,
     actions,
     connection,
@@ -91,14 +94,24 @@ function Training({ fed }) {
           caption={`${progress}% completed`}
         />
         <StatCard
-          label="Global Dice Score"
-          value={`${federatedDice.toFixed(2)}%`}
+          label="Validation Dice"
+          value={latest ? `${(federatedValDice || federatedDice).toFixed(2)}%` : "—"}
           caption={
             baselineDice
-              ? `${((federatedDice / baselineDice) * 100).toFixed(1)}% of baseline`
-              : "No baseline yet"
+              ? `${(( (federatedValDice || federatedDice) / baselineDice) * 100).toFixed(1)}% of baseline val (${baselineDice.toFixed(1)}%)`
+              : "Best round on val split"
           }
           tone="success"
+        />
+        <StatCard
+          label="Held-Out Test Dice"
+          value={federatedTestDice ? `${federatedTestDice.toFixed(2)}%` : "—"}
+          caption={
+            baselineTestDice
+              ? `Baseline test: ${baselineTestDice.toFixed(1)}%`
+              : "Evaluated on held-out test split"
+          }
+          tone="info"
         />
         <StatCard
           label="Current Loss"

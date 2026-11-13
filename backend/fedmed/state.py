@@ -95,6 +95,8 @@ class RuntimeState:
         self.baseline: dict | None = None
         self.federated_summary: dict | None = None
         self.latest_segmentation: dict | None = None
+        self.test_dice: float | None = None
+        self.val_dice: float | None = None
 
         self.dp_epsilon: float = 0.0
         self.dp_delta: float = CONFIG.privacy.dp_delta
@@ -254,6 +256,10 @@ class RuntimeState:
             self.finished_at = time.time()
             if summary:
                 self.federated_summary = summary
+                if "test_dice" in summary:
+                    self.test_dice = float(summary["test_dice"])
+                if "val_dice" in summary:
+                    self.val_dice = float(summary["val_dice"])
         self.bus.publish({"type": "run_finished", "data": summary or {}})
 
     def set_segmentation(self, payload: dict) -> None:
@@ -272,6 +278,8 @@ class RuntimeState:
                 "elapsed_seconds": round(elapsed, 1),
                 "started_at": self.started_at,
                 "finished_at": self.finished_at,
+                "test_dice": self.test_dice,
+                "val_dice": self.val_dice,
                 "dp_epsilon": self.dp_epsilon,
                 "dp_delta": self.dp_delta,
                 "dp_rounds": self.dp_rounds,
