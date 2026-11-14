@@ -79,6 +79,7 @@ def _node_thread(
     address: str,
     use_tls: bool,
     ready: threading.Event,
+    seed: int | None = None,
 ) -> None:
     """Run one hospital node (gRPC service + Flower client)."""
     from .client import HospitalClient
@@ -107,7 +108,7 @@ def _node_thread(
     try:
         from flwr.compat.client.app import start_client
 
-        client = HospitalClient(hospital_id, node_id)
+        client = HospitalClient(hospital_id, node_id, seed=seed)
         STATE.set_node_status(hospital_id, NodeStatus.ONLINE, "Client started")
         ready.set()
 
@@ -143,6 +144,7 @@ def run_cluster(
     enable_dp: bool = True,
     use_tls: bool = True,
     install_signal_handlers: bool = True,
+    seed: int | None = None,
 ) -> dict:
     """Start every hospital node and run the federated loop to completion.
 
@@ -189,6 +191,7 @@ def run_cluster(
                 server_address,
                 use_tls,
                 ready,
+                seed,
             ),
             daemon=True,
             name=f"fedmed-{hospital.hospital_id}",
@@ -205,6 +208,7 @@ def run_cluster(
         enable_dp=enable_dp,
         use_tls=use_tls,
         install_signal_handlers=install_signal_handlers,
+        seed=seed,
     )
 
     # 3. Let the nodes finish their shutdown.
@@ -223,6 +227,7 @@ def main() -> None:
     parser.add_argument("--no-he", action="store_true")
     parser.add_argument("--no-dp", action="store_true")
     parser.add_argument("--insecure", action="store_true")
+    parser.add_argument("--seed", type=int, default=None, help="Random seed (defaults to FEDMED_SEED or 20260101)")
     parser.add_argument("--log-level", type=str, default="INFO")
     args = parser.parse_args()
 
@@ -238,6 +243,7 @@ def main() -> None:
         enable_he=not args.no_he,
         enable_dp=not args.no_dp,
         use_tls=not args.insecure,
+        seed=args.seed,
     )
 
     print()

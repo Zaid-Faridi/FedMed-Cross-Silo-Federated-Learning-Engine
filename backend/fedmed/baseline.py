@@ -20,9 +20,10 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 from .config import CONFIG, MODEL_ROOT
-from .data import load_global_validation, load_pooled_training_set
+from .data import load_global_test, load_global_validation, load_pooled_training_set
 from .metrics import dice_ce_loss, evaluate_model
 from .model import build_model, count_parameters
+from .seed import set_seed
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +37,14 @@ def train_baseline(
     dice_weight: float = 1.0,
     output_dir: Path | None = None,
     device: str = "cpu",
+    seed: int | None = None,
 ) -> dict:
     """Train the centralized baseline model.
 
     Returns:
         A metrics dict with the per-epoch history and the final scores.
     """
+    effective_seed = set_seed(seed)
     out_dir = Path(output_dir) if output_dir else MODEL_ROOT
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -89,6 +92,7 @@ def train_baseline(
     history: list[dict] = []
     best_dice = -1.0
     best_state = None
+    best_epoch = 0
     started = time.time()
 
     for epoch in range(epochs):
@@ -127,6 +131,7 @@ def train_baseline(
 
         if metrics["dice"] > best_dice:
             best_dice = metrics["dice"]
+            best_epoch = epoch + 1
             best_state = {
                 k: v.detach().cpu().clone() for k, v in model.state_dict().items()
             }
@@ -145,6 +150,23 @@ def train_baseline(
     if best_state is not None:
         model.load_state_dict(best_state)
 
+    # Evaluate the best validation model on the held-out test split
+    try:
+        test_x, test_y = load_global_test()
+        test_loader = DataLoader(
+            TensorDataset(test_x, test_y), batch_size=batch_size, shuffle=False
+        )
+        test_metrics = evaluate_model(
+            model, test_loader, CONFIG.model.num_classes, device
+        )
+        test_dice = test_metrics["dice"]
+        test_loss = test_metrics["loss"]
+        test_accuracy = test_metrics["accuracy"]
+    except FileNotFoundError:
+        test_dice = 0.0
+        test_loss = 0.0
+        test_accuracy = 0.0
+
     torch.save(
         {
             "state_dict": best_state,
@@ -157,6 +179,10 @@ def train_baseline(
             },
             "metrics": {
                 "best_dice": round(best_dice, 4),
+                "best_epoch": best_epoch,
+                "test_dice": round(test_dice, 4),
+                "test_loss": round(test_loss, 4),
+                "test_accuracy": round(test_accuracy, 4),
                 "final_dice": history[-1]["dice"] if history else 0.0,
                 "final_accuracy": history[-1]["accuracy"] if history else 0.0,
                 "final_loss": history[-1]["val_loss"] if history else 0.0,
@@ -170,6 +196,10 @@ def train_baseline(
 
     summary = {
         "best_dice": round(best_dice, 4),
+        "best_epoch": best_epoch,
+        "test_dice": round(test_dice, 4),
+        "test_loss": round(test_loss, 4),
+        "test_accuracy": round(test_accuracy, 4),
         "final_dice": history[-1]["dice"] if history else 0.0,
         "final_accuracy": history[-1]["accuracy"] if history else 0.0,
         "final_loss": history[-1]["val_loss"] if history else 0.0,
@@ -185,16 +215,26 @@ def train_baseline(
         json.dump(summary, fh, indent=2)
 
     logger.info(
-        "Baseline complete: best_dice=%.2f%% in %.1fs", best_dice, elapsed
+        "Baseline complete: best_val_dice=%.2f%% (epoch %d), test_dice=%.2f%% in %.1fs",
+        best_dice,
+        best_epoch,
+        test_dice,
+        elapsed,
     )
     return summary
 
 
 def main() -> None:
+    import argparse
+    parser = argparse.ArgumentParser(description="FedMed centralized baseline trainer")
+    parser.add_argument("--epochs", type=int, default=30)
+    parser.add_argument("--seed", type=int, default=None, help="Random seed (defaults to FEDMED_SEED or 20260101)")
+    args = parser.parse_args()
+
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s | %(levelname)-7s | %(message)s"
     )
-    train_baseline()
+    train_baseline(epochs=args.epochs, seed=args.seed)
 
 
 if __name__ == "__main__":

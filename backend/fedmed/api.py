@@ -132,6 +132,10 @@ def _restore_persisted_run() -> None:
 
     STATE.federated_summary = summary
     STATE.restore_rounds(summary.get("history", []))
+    if "test_dice" in summary:
+        STATE.test_dice = float(summary["test_dice"])
+    if "val_dice" in summary:
+        STATE.val_dice = float(summary["val_dice"])
     STATE.total_rounds = summary.get("rounds_completed") or CONFIG.federated.num_rounds
 
     # Restore the privacy audit trail and the DP accountant.
@@ -348,16 +352,23 @@ def get_metrics() -> dict:
         "rounds": rounds,
         "baseline": {
             "best_dice": baseline_dice,
+            "best_epoch": baseline.get("best_epoch", 0),
+            "test_dice": baseline.get("test_dice", 0.0),
             "final_dice": baseline.get("final_dice", 0.0),
             "final_loss": baseline.get("final_loss", 0.0),
             "epochs": baseline.get("epochs", 0),
             "history": baseline.get("history", []),
         },
         "summary": STATE.federated_summary,
+        "test_dice": STATE.test_dice if STATE.test_dice is not None else (STATE.federated_summary or {}).get("test_dice"),
+        "val_dice": STATE.val_dice if STATE.val_dice is not None else (STATE.federated_summary or {}).get("val_dice"),
         "comparison": {
             "federated_dice": fed_dice,
+            "federated_test_dice": (STATE.federated_summary or {}).get("test_dice"),
             "baseline_dice": baseline_dice,
+            "baseline_test_dice": baseline.get("test_dice"),
             "gap": round(baseline_dice - fed_dice, 3) if baseline_dice else None,
+            "test_gap": round(baseline.get("test_dice", 0.0) - float((STATE.federated_summary or {}).get("test_dice", 0.0)), 3) if baseline.get("test_dice") and (STATE.federated_summary or {}).get("test_dice") is not None else None,
             "ratio_pct": round(fed_dice / baseline_dice * 100, 2) if baseline_dice else None,
         },
     }

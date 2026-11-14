@@ -34,6 +34,7 @@ from .metrics import dice_ce_loss, evaluate_model
 from .model import build_model, load_state_dict
 from .privacy import dp as dp_mod
 from .privacy import he as he_mod
+from .seed import set_seed
 from .state import STATE, NodeStatus
 
 logger = logging.getLogger(__name__)
@@ -64,7 +65,9 @@ class HospitalClient(Client):
         batch_size: int | None = None,
         enable_he: bool | None = None,
         enable_dp: bool | None = None,
+        seed: int | None = None,
     ) -> None:
+        self.seed = set_seed(seed)
         self.hospital_id = hospital_id
         self.node_id = node_id
 
@@ -498,7 +501,7 @@ class HospitalClient(Client):
         return 1.0
 
 
-def build_client(hospital_id: str) -> HospitalClient:
+def build_client(hospital_id: str, seed: int | None = None) -> HospitalClient:
     """Factory used by the Flower client entrypoint."""
     hospital = next(h for h in CONFIG.hospitals if h.hospital_id == hospital_id)
-    return HospitalClient(hospital.hospital_id, hospital.node_id)
+    return HospitalClient(hospital.hospital_id, hospital.node_id, seed=seed)

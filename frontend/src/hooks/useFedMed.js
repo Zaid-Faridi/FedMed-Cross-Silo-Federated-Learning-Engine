@@ -191,7 +191,10 @@ export function useFedMed() {
   const derived = useMemo(() => {
     const latest = rounds.length ? rounds[rounds.length - 1] : null;
     const baselineDice = Number(baseline?.best_dice ?? 0);
+    const baselineTestDice = Number(baseline?.test_dice ?? 0);
     const federatedDice = Number(latest?.dice ?? 0);
+    const federatedValDice = Number(summary?.val_dice ?? summary?.federated_best_dice ?? federatedDice);
+    const federatedTestDice = Number(status?.test_dice ?? summary?.test_dice ?? summary?.federated_test_dice ?? 0);
     const onlineNodes = nodes.filter((n) =>
       ["online", "training", "aggregating"].includes(n.status),
     ).length;
@@ -199,10 +202,16 @@ export function useFedMed() {
     return {
       latest,
       baselineDice,
+      baselineTestDice,
       federatedDice,
+      federatedValDice,
+      federatedTestDice,
+      testDice: federatedTestDice,
+      valDice: federatedValDice,
       onlineNodes,
       totalNodes: nodes.length || 3,
       diceGap: baselineDice ? Number((baselineDice - federatedDice).toFixed(2)) : null,
+      testDiceGap: baselineTestDice && federatedTestDice ? Number((baselineTestDice - federatedTestDice).toFixed(2)) : null,
       diceRatio: baselineDice
         ? Number(((federatedDice / baselineDice) * 100).toFixed(1))
         : null,
